@@ -1,5 +1,5 @@
 import { useEffect } from "react";
-import { useNavigation,useLocation, useNavigate   } from "react-router";
+import { useLocation, useNavigate} from "react-router";
 import { usePuterStore } from "~/lib/puter"
 
 export const meta =()=>([
@@ -16,7 +16,7 @@ const Auth = () => {
     useEffect(()=>{
         if(auth.isAuthenticated) navigate(next);
     }, [auth.isAuthenticated,next])
-    
+
   return (
     <main className="bg-[url('/images/bg-auth.svg')] bg-cover  min-h-screen flex items-center justify-center">
         <div className="gradient-border shadow-lg">
