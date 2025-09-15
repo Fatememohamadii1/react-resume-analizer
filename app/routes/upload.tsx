@@ -1,26 +1,74 @@
 import React, { useState, type FormEvent } from 'react'
 import Navbar from '~/components/navbar';
 import FileUploader from '~/components/fileUploader';
+import { usePuterStore } from '~/lib/puter';
+import {convertPdfToImage} from '~/lib/pdf2img';
+import { generateUUID } from '~/lib/utils';
+import { prepareInstructions } from '~/constants';
 import { log } from 'console';
+import { useNavigate } from 'react-router';
 
-const upload = () => {
-    const[isProcessing, setIsProcessing]= useState(true);
-    const[statusText, setstatusText]=useState();
-    const[file,setFlie] = useState<File | null >(null);
+const Upload = () => {
+    const{auth,isLoading,fs,ai,kv} = usePuterStore();
+    const navigate = useNavigate();
+    const[isProcessing, setIsProcessing]= useState(false);
+    const[statusText, setstatusText]= useState<string>("");
+    const[file,setFile] = useState<File | null >(null);
     const handleFilesSelect =(file:File | null) =>{
-        setFlie(file)
+        setFile(file)
     }
+
+    const handleAnalyze = async({companyName,jobTitle,jobDescription,file} : {companyName: string, jobTitle:string, jobDescription:string, file:File}) =>{
+        setIsProcessing(true);
+        setstatusText('uploading the file...');
+        const uploadedFile= await fs.upload([file]);
+        if(!uploadedFile) return setstatusText('Error:Faild to Upload file');
+        setstatusText('converting to image...');
+        const imageFile = await convertPdfToImage(file);
+        if(!imageFile.file) return setstatusText('Error :  Faild to convert PDF to image');
+        setstatusText('uploading the image...');
+        const uploadedImage = await fs.upload([imageFile.file]);
+        if(!uploadedImage) return setstatusText('Error:Faild to Upload image');
+        setstatusText('preparing data...');
+        const uuid = generateUUID();
+        const data = {
+            id : uuid,
+            resumemPath :uploadedFile.path,
+            imagePath : uploadedImage.path,
+            companyName,jobTitle,jobDescription,
+            feedback :'',
+        }
+        await kv.set(`resume:${uuid}`,JSON.stringify(data));
+        setstatusText('Analyzing...');
+
+        const feedback = await ai.feedback(
+            uploadedFile.path,
+            prepareInstructions({jobTitle , jobDescription })
+        )
+        if(!feedback) return setstatusText('Error : Faild to analyze resume');
+        const feedbackText = typeof feedback.message.content === 'string' 
+            ? feedback.message.content 
+            : feedback.message.content[0].text;
+
+        data.feedback = JSON.parse(feedbackText);
+        await kv.set(`resume:${uuid}`,JSON.stringify(data));
+        setstatusText('analysis complete, redirecting...');
+        console.log(data);
+        
+    }
+
     const handleSubmit = (e:FormEvent<HTMLFormElement>)=>{
         e.preventDefault();
         const form =e.currentTarget.closest('form');
         if(!form) return;
         const formData = new FormData(form);
 
-        const companyName = formData.get('company-name');
-        const jobTitle = formData.get('job-title ');
-        const jobDescription = formData.get('job-description');
+        const companyName = formData.get('company-name') as string;
+        const jobTitle = formData.get('job-title') as string;
+        const jobDescription = formData.get('job-description') as string;
 
-        console.log({companyName,jobDescription,jobTitle,file});
+        if(!file) return;
+        handleAnalyze({companyName,jobDescription,jobTitle,file});
         
     }
   return (
@@ -31,13 +79,13 @@ const upload = () => {
             <h1>smart feedback for your dream job</h1>
             {isProcessing ? (
                 <>
-                <h2>{}statusText</h2>
+                <h2>{statusText}</h2>
                 <img src="/images/resume-scan.gif" className='w-full' />
                 </>
             ) : (
                 <h2>Drop your resume for ATS score and improvement tips</h2>
             )}
-            {isProcessing && (
+            {!isProcessing && (
                 <form id='upload-form' onSubmit={handleSubmit} className='flex flex-col gap-4 mt-8'>
                         <div className='form-div'>
                             <label htmlFor="company-name">Company Name</label>
@@ -67,4 +115,4 @@ const upload = () => {
   )
 }
 
-export default upload
+export default Upload
